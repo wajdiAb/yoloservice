@@ -48,3 +48,6 @@ def test_labels_endpoint(self):
     if "labels" in self.prediction_data:
         for expected_label in self.prediction_data["labels"]:
             self.assertIn(expected_label, labels_list)
+
+if __name__ == "__main__":
+    unittest.main()

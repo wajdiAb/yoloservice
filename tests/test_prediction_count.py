@@ -51,3 +51,7 @@ class TestPredictionCount(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["count"], 1)  # Only the recent one should be counted
+
+
+if __name__ == "__main__":
+    unittest.main()
