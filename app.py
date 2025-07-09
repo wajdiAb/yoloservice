@@ -225,6 +225,16 @@ def health():
     """
     return {"status": "ok"}
 
+
+@app.get("/predictions/count")
+def get_prediction_count():
+    """
+    Get total number of predictions made
+    """
+    with sqlite3.connect(DB_PATH) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM prediction_sessions").fetchone()[0]
+    return {"prediction_count": count}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8080)
