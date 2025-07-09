@@ -255,6 +255,38 @@ def get_unique_labels_last_week():
         labels = [row["label"] for row in cursor.fetchall()]
     return {"labels": labels}
 
+@app.delete("/prediction/{uid}")
+def delete_prediction(uid: str):
+    """
+    Delete a specific prediction and clean up associated files.
+    Removes prediction from database and deletes original and predicted image files.
+    """
+    with sqlite3.connect(DB_PATH) as conn:
+        # Get image file paths before deleting
+        row = conn.execute(
+            "SELECT original_image, predicted_image FROM prediction_sessions WHERE uid = ?",
+            (uid,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Prediction not found")
+        original_image, predicted_image = row
+
+        # Delete detection objects
+        conn.execute("DELETE FROM detection_objects WHERE prediction_uid = ?", (uid,))
+        # Delete prediction session
+        conn.execute("DELETE FROM prediction_sessions WHERE uid = ?", (uid,))
+
+    # Remove image files if they exist
+    for path in [original_image, predicted_image]:
+        if path and os.path.exists(path):
+            try:
+                os.remove(path)
+            except Exception:
+                pass  # Ignore file errors
+
+    return {"status": "deleted", "uid": uid}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8080)
