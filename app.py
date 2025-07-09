@@ -255,6 +255,52 @@ def get_unique_labels_last_week():
         labels = [row["label"] for row in cursor.fetchall()]
     return {"labels": labels}
 
+@app.get("/stats")
+def get_stats_last_week():
+    """
+    Get overall statistics and analytics about predictions in the last 1 week:
+    - Total number of predictions made
+    - Average confidence scores
+    - Most frequently detected object labels
+    """
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+
+        # Total number of predictions
+        total_predictions = conn.execute("""
+            SELECT COUNT(*) as count
+            FROM prediction_sessions
+            WHERE timestamp >= datetime('now', '-7 days')
+        """).fetchone()["count"]
+
+        # Average confidence score
+        avg_conf_row = conn.execute("""
+            SELECT AVG(do.score) as avg_score
+            FROM detection_objects do
+            JOIN prediction_sessions ps ON do.prediction_uid = ps.uid
+            WHERE ps.timestamp >= datetime('now', '-7 days')
+        """).fetchone()
+        avg_confidence = avg_conf_row["avg_score"] if avg_conf_row and avg_conf_row["avg_score"] is not None else 0.0
+
+        # Most frequently detected object labels
+        freq_labels = conn.execute("""
+            SELECT do.label, COUNT(*) as count
+            FROM detection_objects do
+            JOIN prediction_sessions ps ON do.prediction_uid = ps.uid
+            WHERE ps.timestamp >= datetime('now', '-7 days')
+            GROUP BY do.label
+            ORDER BY count DESC
+            LIMIT 5
+        """).fetchall()
+        most_frequent_labels = [{"label": row["label"], "count": row["count"]} for row in freq_labels]
+
+    return {
+        "total_predictions": total_predictions,
+        "average_confidence": avg_confidence,
+        "most_frequent_labels": most_frequent_labels
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8080)

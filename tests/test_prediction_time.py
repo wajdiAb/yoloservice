@@ -31,3 +31,6 @@ class TestProcessingTime(unittest.TestCase):
         self.assertIn("time_took", data)
         self.assertIsInstance(data["time_took"], (int, float))
         self.assertGreater(data["time_took"], 0)
+
+if __name__ == "__main__":
+    unittest.main()
