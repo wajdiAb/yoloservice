@@ -227,13 +227,17 @@ def health():
 
 
 @app.get("/predictions/count")
-def get_prediction_count():
+def get_prediction_count_last_week():
     """
-    Get total number of predictions made
+    Get the number of predictions made in the last 7 days
     """
     with sqlite3.connect(DB_PATH) as conn:
-        count = conn.execute("SELECT COUNT(*) FROM prediction_sessions").fetchone()[0]
-    return {"prediction_count": count}
+        cursor = conn.execute("""
+            SELECT COUNT(*) FROM prediction_sessions
+            WHERE timestamp >= datetime('now', '-7 days')
+        """)
+        count = cursor.fetchone()[0]
+    return {"count": count}
 
 if __name__ == "__main__":
     import uvicorn
