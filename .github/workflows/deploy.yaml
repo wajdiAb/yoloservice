@@ -1,0 +1,39 @@
+name: Deploy Service
+
+on:
+  push:
+    branches:
+     - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Deploy to server
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.HOST }}
+        username: ubuntu
+        key: ${{ secrets.SSH_KEY }}
+        script: |
+          cd /home/ubuntu/yoloservice || (git clone https://github.com/wajdiAb/yoloservice.git && cd yoloservice)
+          
+          git pull origin main
+
+          # Set up Python virtual environment if it doesn't exist
+          if [ ! -d ".venv" ]; then
+            python3 -m venv .venv
+          fi
+          
+          # Activate the virtual environment and install dependencies
+          source .venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+          # Restart the systemd service
+          sudo systemctl restart yolo.service
