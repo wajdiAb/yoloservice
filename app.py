@@ -232,6 +232,7 @@ def get_prediction_count_last_week():
     Get the number of predictions made in the last 7 days
     """
     with sqlite3.connect(DB_PATH) as conn:
+        
         cursor = conn.execute("""
             SELECT COUNT(*) FROM prediction_sessions
             WHERE timestamp >= datetime('now', '-7 days')
