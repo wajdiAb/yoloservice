@@ -38,7 +38,7 @@ class TestPredictionCount(unittest.TestCase):
 
     def test_prediction_count_format(self):
         """Check response format and status"""
-        response = self.client.get("/predictions/count")
+        response = self.client.get("/predictions/count", auth=("testuser", "testpass"))
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertIn("count", data)
@@ -47,11 +47,10 @@ class TestPredictionCount(unittest.TestCase):
 
     def test_prediction_count_last_7_days(self):
         """Ensure only recent predictions are counted"""
-        response = self.client.get("/predictions/count")
+        response = self.client.get("/predictions/count", auth=("testuser", "testpass"))
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["count"], 1)  # Only the recent one should be counted
-
 
 if __name__ == "__main__":
     unittest.main()

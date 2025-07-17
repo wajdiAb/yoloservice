@@ -20,7 +20,8 @@ class TestProcessingTime(unittest.TestCase):
         
         response = self.client.post(
             "/predict",
-            files={"file": ("test.jpg", self.image_bytes, "image/jpeg")}
+            files={"file": ("test.jpg", self.image_bytes, "image/jpeg")},
+            auth=("testuser", "testpass")  # ✅ Include authentication
         )
         
         # Check response
