@@ -27,7 +27,7 @@ DB_PATH = "predictions.db"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(PREDICTED_DIR, exist_ok=True)
 
-# Download the AI model (tiny model ~6MB)
+# Download the AI model (tiny model ~6MB).
 model = YOLO("yolov8n.pt")  
 
 # Initialize SQLite

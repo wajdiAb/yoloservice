@@ -8,5 +8,5 @@ pillow>=9.5.0
 # Ultralytics YOLOv8 (includes minimal dependencies)
 ultralytics>=8.0.0
 python-multipart>=0.0.6
-httpxbcrypt==4.3.0
+httpx
 bcrypt==4.3.0

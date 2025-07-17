@@ -5,7 +5,7 @@ from app import app
 client = TestClient(app)
 
 class TestAuth(unittest.TestCase):
-
+    # 
     def test_protected_endpoint_requires_auth(self):
         response = client.get("/prediction/test-uid")
         self.assertEqual(response.status_code, 401)
