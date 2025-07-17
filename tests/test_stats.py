@@ -11,15 +11,17 @@ class TestStatsEndpoint(unittest.TestCase):
         with sqlite3.connect(DB_PATH) as conn:
             conn.execute("DELETE FROM detection_objects")
             conn.execute("DELETE FROM prediction_sessions")
-            # Insert prediction sessions
+            
+            # Insert prediction sessions WITH username for authentication
             conn.execute(
-                "INSERT INTO prediction_sessions (uid, timestamp, original_image, predicted_image) VALUES (?, datetime('now', '-2 days'), ?, ?)",
-                ("uid1", "orig1.jpg", "pred1.jpg")
+                "INSERT INTO prediction_sessions (uid, username, timestamp, original_image, predicted_image) VALUES (?, ?, datetime('now', '-2 days'), ?, ?)",
+                ("uid1", "testuser", "orig1.jpg", "pred1.jpg")
             )
             conn.execute(
-                "INSERT INTO prediction_sessions (uid, timestamp, original_image, predicted_image) VALUES (?, datetime('now', '-1 days'), ?, ?)",
-                ("uid2", "orig2.jpg", "pred2.jpg")
+                "INSERT INTO prediction_sessions (uid, username, timestamp, original_image, predicted_image) VALUES (?, ?, datetime('now', '-1 days'), ?, ?)",
+                ("uid2", "testuser", "orig2.jpg", "pred2.jpg")
             )
+
             # Insert detection objects
             conn.execute(
                 "INSERT INTO detection_objects (prediction_uid, label, score, box) VALUES (?, ?, ?, ?)",
@@ -35,7 +37,7 @@ class TestStatsEndpoint(unittest.TestCase):
             )
 
     def test_stats_endpoint(self):
-        response = self.client.get("/stats", auth=("testuser", "testpass"))  # ✅ Add auth
+        response = self.client.get("/stats", auth=("testuser", "testpass"))
         self.assertEqual(response.status_code, 200)
 
         data = response.json()

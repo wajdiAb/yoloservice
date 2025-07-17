@@ -26,7 +26,7 @@ class TestLabelsEndpoint(unittest.TestCase):
 
     def test_labels_endpoint(self):
         """Test that /labels returns correct label list structure and values"""
-        response = self.client.get("/labels")
+        response = self.client.get("/labels", auth=("testuser", "testpass"))  # ✅ Auth added
         self.assertEqual(response.status_code, 200)
 
         data = response.json()
