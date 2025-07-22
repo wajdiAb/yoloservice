@@ -1,8 +1,9 @@
 import unittest
 from fastapi.testclient import TestClient
-from app import app
+from app import app, DB_PATH
 from PIL import Image
 import io
+import sqlite3
 
 client = TestClient(app)
 
@@ -64,6 +65,50 @@ class TestAuth(unittest.TestCase):
     def test_status_endpoint_no_auth(self):
         response = client.get("/health")
         self.assertEqual(response.status_code, 200)
+
+    # ----------------------- New Tests for Full Coverage -----------------------
+
+    def test_malformed_authorization_header(self):
+        """Simulate malformed Authorization header (not Basic)."""
+        headers = {
+            "Authorization": "Bearer sometoken"
+        }
+        response = client.post("/predict", headers=headers)
+        self.assertEqual(response.status_code, 422)  # FastAPI throws 422 on malformed headers
+
+    def test_first_time_user_registration(self):
+        """Register a new user by calling predict."""
+        image_bytes = self._generate_test_image()
+        response = client.post("/predict", files={"file": image_bytes}, auth=("newuser123", "newpass"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["username"], "newuser123")
+
+    def test_existing_user_correct_password(self):
+        """Test login with valid password after registration."""
+        response = client.get("/labels", auth=("testuser", "testpass"))
+        self.assertIn(response.status_code, (200, 204))
+        self.assertIn("labels", response.json())
+
+    def test_predict_without_auth_optional(self):
+        """Check that prediction works without auth (username should be null)."""
+        image_bytes = self._generate_test_image()
+        response = client.post("/predict", files={"file": image_bytes})
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["username"])
+    
+    def test_get_prediction_other_user(self):
+        # Create a prediction with another user
+        uid = "foreign-uid"
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute("DELETE FROM prediction_sessions WHERE uid = ?", (uid,))
+            conn.execute(
+                "INSERT INTO prediction_sessions (uid, original_image, predicted_image, username) VALUES (?, ?, ?, ?)",
+                (uid, "x.jpg", "y.jpg", "someoneelse")
+            )
+
+        response = client.get(f"/prediction/{uid}", auth=("testuser", "testpass"))
+        self.assertEqual(response.status_code, 404)
+
 
 if __name__ == "__main__":
     unittest.main()

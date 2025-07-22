@@ -2,7 +2,7 @@ import unittest
 from fastapi.testclient import TestClient
 from app import app
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 
 DB_PATH = "predictions.db"
 
@@ -21,7 +21,7 @@ class TestPredictionCount(unittest.TestCase):
             """, (
                 "recent-id", 
                 "testuser",
-                datetime.utcnow().isoformat(), 
+                datetime.now(UTC).isoformat(), 
                 "recent_original.jpg", 
                 "recent_predicted.jpg"
             ))
@@ -33,7 +33,7 @@ class TestPredictionCount(unittest.TestCase):
             """, (
                 "old-id", 
                 "testuser",
-                (datetime.utcnow() - timedelta(days=10)).isoformat(), 
+                (datetime.now(UTC) - timedelta(days=10)).isoformat(), 
                 "old_original.jpg", 
                 "old_predicted.jpg"
             ))
