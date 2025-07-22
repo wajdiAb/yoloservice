@@ -7,7 +7,7 @@ import os
 import uuid
 import shutil
 import time
-
+import logging
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi import Depends, HTTPException, status
 import bcrypt
@@ -127,9 +127,10 @@ async def get_optional_username(request: Request):
 
     try:
         credentials = await security(request)
+        # Sync function in thread-safe way
         return get_current_username(credentials)
     except HTTPException:
-        raise  # Force rejection if credentials are invalid
+        raise
 
 
 
@@ -342,6 +343,16 @@ def get_unique_labels_last_week(username: str = Depends(get_current_username)):
         labels = [row["label"] for row in cursor.fetchall()]
     return {"labels": labels}
 
+
+def safe_delete_file(path: str):
+    logger = logging.getLogger(__name__)
+    if path and os.path.exists(path):
+        try:
+            os.remove(path)
+        except Exception as e:
+            logger.warning(f"Failed to delete file: {path}. Error: {e}")
+
+
 @app.delete("/prediction/{uid}")
 def delete_prediction(uid: str, username: str = Depends(get_current_username)):
     """
@@ -366,11 +377,7 @@ def delete_prediction(uid: str, username: str = Depends(get_current_username)):
 
     # Remove image files if they exist
     for path in [original_image, predicted_image]:
-        if path and os.path.exists(path):
-            try:
-                os.remove(path)
-            except Exception:
-                pass  # Ignore file errors
+        safe_delete_file(path)
 
     return {"status": "deleted", "uid": uid}
 

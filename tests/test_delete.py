@@ -4,6 +4,7 @@ import sqlite3
 import time
 from fastapi.testclient import TestClient
 from app import app, DB_PATH
+from unittest.mock import patch
 
 AUTH = ("testuser", "testpass")
 
@@ -14,17 +15,14 @@ class TestDeletePredictionEndpoint(unittest.TestCase):
         self.original_image = f"uploads/original/{self.uid}.jpg"
         self.predicted_image = f"uploads/predicted/{self.uid}.jpg"
 
-        # Ensure upload directories exist
         os.makedirs("uploads/original", exist_ok=True)
         os.makedirs("uploads/predicted", exist_ok=True)
 
-        # Create dummy image files
         with open(self.original_image, "wb") as f:
             f.write(b"dummy")
         with open(self.predicted_image, "wb") as f:
             f.write(b"dummy")
 
-        # Insert into DB
         with sqlite3.connect(DB_PATH) as conn:
             conn.execute("DELETE FROM detection_objects WHERE prediction_uid = ?", (self.uid,))
             conn.execute("DELETE FROM prediction_sessions WHERE uid = ?", (self.uid,))
@@ -37,32 +35,42 @@ class TestDeletePredictionEndpoint(unittest.TestCase):
                 (self.uid, "cat", 0.9, "[0,0,10,10]")
             )
 
-    def test_delete_prediction_with_delay(self):
-        # Confirm files exist before deletion
-        self.assertTrue(os.path.exists(self.original_image))
-        self.assertTrue(os.path.exists(self.predicted_image))
-        print(f"Original image exists: {self.original_image}")
-        print(f"Predicted image exists: {self.predicted_image}")
-
-        time.sleep(1)  # Optional visual confirmation
-
-        # DELETE request with auth
+    def test_delete_prediction_success(self):
         response = self.client.delete(f"/prediction/{self.uid}", auth=AUTH)
         self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertEqual(data["status"], "deleted")
-        self.assertEqual(data["uid"], self.uid)
+        self.assertEqual(response.json()["status"], "deleted")
 
-        # DB cleanup check
+        # Ensure DB is clean
         with sqlite3.connect(DB_PATH) as conn:
-            session = conn.execute("SELECT * FROM prediction_sessions WHERE uid = ?", (self.uid,)).fetchone()
-            self.assertIsNone(session)
-            obj = conn.execute("SELECT * FROM detection_objects WHERE prediction_uid = ?", (self.uid,)).fetchone()
-            self.assertIsNone(obj)
+            self.assertIsNone(conn.execute("SELECT * FROM prediction_sessions WHERE uid = ?", (self.uid,)).fetchone())
+            self.assertIsNone(conn.execute("SELECT * FROM detection_objects WHERE prediction_uid = ?", (self.uid,)).fetchone())
 
-        # File cleanup check
+        # Ensure files are removed
         self.assertFalse(os.path.exists(self.original_image))
         self.assertFalse(os.path.exists(self.predicted_image))
+
+    def test_delete_prediction_not_found(self):
+        response = self.client.delete("/prediction/nonexistent-id", auth=AUTH)
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "Prediction not found")
+
+    def test_delete_prediction_files_already_deleted(self):
+        # Manually delete files before calling endpoint
+        if os.path.exists(self.original_image):
+            os.remove(self.original_image)
+        if os.path.exists(self.predicted_image):
+            os.remove(self.predicted_image)
+
+        response = self.client.delete(f"/prediction/{self.uid}", auth=AUTH)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "deleted")
+
+    def test_delete_prediction_file_remove_fails(self):
+        # Patch os.remove to simulate error
+        with patch("os.remove", side_effect=OSError("Simulated deletion error")):
+            response = self.client.delete(f"/prediction/{self.uid}", auth=AUTH)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["status"], "deleted")
 
     def tearDown(self):
         for path in [self.original_image, self.predicted_image]:

@@ -3,6 +3,8 @@ import sqlite3
 from fastapi.testclient import TestClient
 from app import app, DB_PATH
 
+client = TestClient(app)
+
 class TestStatsEndpoint(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
@@ -51,6 +53,37 @@ class TestStatsEndpoint(unittest.TestCase):
         labels = {item["label"]: item["count"] for item in data["most_frequent_labels"]}
         self.assertEqual(labels["cat"], 2)
         self.assertEqual(labels["dog"], 1)
+
+    def test_stats_with_no_predictions(self):
+        username = "emptyuser"
+        password = "emptypass"
+
+        # Register new user
+        response = client.get("/stats", auth=(username, password))
+        self.assertEqual(response.status_code, 200)
+
+        data = response.json()
+        self.assertEqual(data["total_predictions"], 0)
+        self.assertEqual(data["average_confidence"], 0.0)
+        self.assertEqual(data["most_frequent_labels"], [])
+        
+    def test_stats_zero_objects(self):
+        username = "noobjects"
+        password = "nopass"
+
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute("DELETE FROM prediction_sessions WHERE username = ?", (username,))
+            conn.execute("DELETE FROM detection_objects")
+
+            conn.execute(
+                "INSERT INTO prediction_sessions (uid, original_image, predicted_image, username) VALUES (?, ?, ?, ?)",
+                ("zzz", "a.jpg", "b.jpg", username)
+            )
+            # No detection_objects inserted
+
+        response = client.get("/stats", auth=(username, password))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["average_confidence"], 0.0)
 
 if __name__ == "__main__":
     unittest.main()
