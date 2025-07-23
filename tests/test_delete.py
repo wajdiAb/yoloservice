@@ -3,13 +3,15 @@ import os
 import sqlite3
 import time
 from fastapi.testclient import TestClient
-from app import app, DB_PATH
 from unittest.mock import patch
 
 AUTH = ("testuser", "testpass")
 
 class TestDeletePredictionEndpoint(unittest.TestCase):
     def setUp(self):
+        from app import app, DB_PATH
+        self.DB_PATH = DB_PATH
+        self.AUTH = AUTH
         self.client = TestClient(app)
         self.uid = "test-delete-uid"
         self.original_image = f"uploads/original/{self.uid}.jpg"
@@ -41,7 +43,7 @@ class TestDeletePredictionEndpoint(unittest.TestCase):
         self.assertEqual(response.json()["status"], "deleted")
 
         # Ensure DB is clean
-        with sqlite3.connect(DB_PATH) as conn:
+        with sqlite3.connect(self.DB_PATH) as conn:
             self.assertIsNone(conn.execute("SELECT * FROM prediction_sessions WHERE uid = ?", (self.uid,)).fetchone())
             self.assertIsNone(conn.execute("SELECT * FROM detection_objects WHERE prediction_uid = ?", (self.uid,)).fetchone())
 
@@ -76,9 +78,27 @@ class TestDeletePredictionEndpoint(unittest.TestCase):
         for path in [self.original_image, self.predicted_image]:
             if os.path.exists(path):
                 os.remove(path)
-        with sqlite3.connect(DB_PATH) as conn:
+        with sqlite3.connect(self.DB_PATH) as conn:
             conn.execute("DELETE FROM detection_objects WHERE prediction_uid = ?", (self.uid,))
             conn.execute("DELETE FROM prediction_sessions WHERE uid = ?", (self.uid,))
+
+    def test_safe_delete_file_exception_logged(self):
+        import os
+        from app import safe_delete_file
+        import tempfile
+
+        path = tempfile.NamedTemporaryFile(delete=False).name
+
+        # Monkey-patch os.remove to raise error
+        original_remove = os.remove
+        os.remove = lambda p: (_ for _ in ()).throw(OSError("fail"))
+
+        try:
+            safe_delete_file(path)
+        finally:
+            os.remove = original_remove
+            if os.path.exists(path):
+                os.unlink(path)
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,12 +1,13 @@
 import unittest
 from fastapi.testclient import TestClient
-from app import app
 from PIL import Image
 import io
 import time
 
 class TestLabelsEndpoint(unittest.TestCase):
     def setUp(self):
+        from app import app
+
         self.client = TestClient(app)
 
         # Upload a sample image to ensure there is at least one prediction with labels
