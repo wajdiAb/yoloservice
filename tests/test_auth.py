@@ -137,7 +137,7 @@ class TestAuth(unittest.TestCase):
     def test_predict_with_detection(self):
         # Use an image that YOLO is very likely to detect something in.
         # You can use a small PNG of a person, car, etc.
-        with open("/home/wajdi/yoloservice/person.png", "rb") as f:
+        with open("tests/assets/person.png", "rb") as f:
             image_file = ("person.png", f, "image/png")
             response = self.client.post("/predict", files={"file": image_file}, auth=("testuser", "testpass"))
         
