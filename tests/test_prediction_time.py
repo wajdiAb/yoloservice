@@ -3,10 +3,11 @@ from fastapi.testclient import TestClient
 from PIL import Image
 import io
 
-from app import app
+
 
 class TestProcessingTime(unittest.TestCase):
     def setUp(self):
+        from app import app
         self.client = TestClient(app)
         
         # Create a simple test image

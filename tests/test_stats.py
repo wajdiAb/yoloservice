@@ -1,12 +1,13 @@
 import unittest
 import sqlite3
 from fastapi.testclient import TestClient
-from app import app, DB_PATH
 
-client = TestClient(app)
 
 class TestStatsEndpoint(unittest.TestCase):
     def setUp(self):
+        from app import app, DB_PATH
+        self.DB_PATH = DB_PATH
+        client = TestClient(app)
         self.client = TestClient(app)
 
         # Clean and insert controlled test data
@@ -59,7 +60,7 @@ class TestStatsEndpoint(unittest.TestCase):
         password = "emptypass"
 
         # Register new user
-        response = client.get("/stats", auth=(username, password))
+        response = self.client.get("/stats", auth=(username, password))
         self.assertEqual(response.status_code, 200)
 
         data = response.json()
@@ -71,7 +72,7 @@ class TestStatsEndpoint(unittest.TestCase):
         username = "noobjects"
         password = "nopass"
 
-        with sqlite3.connect(DB_PATH) as conn:
+        with sqlite3.connect(self.DB_PATH) as conn:
             conn.execute("DELETE FROM prediction_sessions WHERE username = ?", (username,))
             conn.execute("DELETE FROM detection_objects")
 
@@ -81,7 +82,7 @@ class TestStatsEndpoint(unittest.TestCase):
             )
             # No detection_objects inserted
 
-        response = client.get("/stats", auth=(username, password))
+        response = self.client.get("/stats", auth=(username, password))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["average_confidence"], 0.0)
 

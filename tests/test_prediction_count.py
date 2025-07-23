@@ -1,6 +1,5 @@
 import unittest
 from fastapi.testclient import TestClient
-from app import app
 import sqlite3
 from datetime import datetime, timedelta, UTC
 
@@ -8,6 +7,8 @@ DB_PATH = "predictions.db"
 
 class TestPredictionCount(unittest.TestCase):
     def setUp(self):
+        from app import app
+
         self.client = TestClient(app)
 
         # Clean and insert controlled test data with username
