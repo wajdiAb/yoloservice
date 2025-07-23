@@ -1,6 +1,6 @@
 import unittest
 from fastapi.testclient import TestClient
-
+from app import app, DB_PATH
 from PIL import Image
 import io
 import sqlite3
@@ -11,7 +11,7 @@ class TestAuth(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from app import app, DB_PATH
+        
         cls.DB_PATH = DB_PATH
         cls.client = TestClient(app)
         """Ensure test user is created by sending a predict request."""
@@ -145,6 +145,22 @@ class TestAuth(unittest.TestCase):
         data = response.json()
         assert data["detection_count"] > 0
         assert len(data["labels"]) > 0
+
+    def test_first_time_user_registration_triggers_insert(self):
+        """Covers new user registration in get_current_username."""
+        image_bytes = self._generate_test_image()
+        new_username = "newuser_456"
+        new_password = "newpass"
+
+        # Clean user in case it already exists from previous run
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute("DELETE FROM users WHERE username = ?", (new_username,))
+            conn.commit()
+
+        response = self.client.post("/predict", files={"file": image_bytes}, auth=(new_username, new_password))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["username"], new_username)
+
 
 
 

@@ -3,13 +3,13 @@ import os
 import sqlite3
 import time
 from fastapi.testclient import TestClient
-from unittest.mock import patch
+from app import app, DB_PATH
 
 AUTH = ("testuser", "testpass")
 
 class TestDeletePredictionEndpoint(unittest.TestCase):
     def setUp(self):
-        from app import app, DB_PATH
+        
         self.DB_PATH = DB_PATH
         self.AUTH = AUTH
         self.client = TestClient(app)
@@ -68,11 +68,39 @@ class TestDeletePredictionEndpoint(unittest.TestCase):
         self.assertEqual(response.json()["status"], "deleted")
 
     def test_delete_prediction_file_remove_fails(self):
-        # Patch os.remove to simulate error
-        with patch("os.remove", side_effect=OSError("Simulated deletion error")):
-            response = self.client.delete(f"/prediction/{self.uid}", auth=AUTH)
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.json()["status"], "deleted")
+            # Create fake prediction record
+        with sqlite3.connect(self.DB_PATH) as conn:
+            conn.execute("DELETE FROM prediction_sessions WHERE uid = ?", (self.uid,))
+            conn.execute("""
+                INSERT INTO prediction_sessions (uid, timestamp, original_image, predicted_image, username)
+                VALUES (?, datetime('now'), ?, ?, ?)
+            """, (
+                self.uid,
+                self.original_image,
+                self.predicted_image,
+                self.AUTH[0],  # or just "testuser"
+            ))
+
+        # Simulate deletion failure by removing the files beforehand
+        os.remove(self.original_image)
+        os.remove(self.predicted_image)
+
+        response = self.client.delete(f"/prediction/{self.uid}", auth=self.AUTH)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "deleted")
+
+    def test_safe_delete_file_exception_logged(self):
+        bad_path = "uploads/bad_dir"
+        os.makedirs(bad_path, exist_ok=True)  # this is a directory
+
+        from app import safe_delete_file
+
+        # This should hit the exception block, because os.remove(bad_path) will fail
+        safe_delete_file(bad_path)
+
+        # Clean up the test dir
+        os.rmdir(bad_path)
+
 
     def tearDown(self):
         for path in [self.original_image, self.predicted_image]:
@@ -82,23 +110,7 @@ class TestDeletePredictionEndpoint(unittest.TestCase):
             conn.execute("DELETE FROM detection_objects WHERE prediction_uid = ?", (self.uid,))
             conn.execute("DELETE FROM prediction_sessions WHERE uid = ?", (self.uid,))
 
-    def test_safe_delete_file_exception_logged(self):
-        import os
-        from app import safe_delete_file
-        import tempfile
-
-        path = tempfile.NamedTemporaryFile(delete=False).name
-
-        # Monkey-patch os.remove to raise error
-        original_remove = os.remove
-        os.remove = lambda p: (_ for _ in ()).throw(OSError("fail"))
-
-        try:
-            safe_delete_file(path)
-        finally:
-            os.remove = original_remove
-            if os.path.exists(path):
-                os.unlink(path)
+    
 
 if __name__ == "__main__":
     unittest.main()
