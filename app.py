@@ -427,6 +427,6 @@ def get_stats_last_week(username: str = Depends(get_current_username)):
     }
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8080)
