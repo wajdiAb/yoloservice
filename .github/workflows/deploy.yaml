@@ -36,5 +36,23 @@ jobs:
           pip install -r torch-requirements.txt
           pip install -r requirements.txt
 
-          # Restart the systemd service
-          sudo systemctl restart yolo.service
+
+          # Create systemd service file
+          sudo bash -c 'cat > /etc/systemd/system/yolo.service << EOF
+          [Unit]
+          Description=Yolo Service
+          After=network.target
+          [Service]
+          WorkingDirectory='"$REPO_DIR"'
+          ExecStart='"$REPO_DIR"'/.venv/bin/python '"$REPO_DIR"'/app.py
+          Restart=always
+          User=ubuntu
+          [Install]
+          WantedBy=multi-user.target
+          EOF'
+
+          # Restart the YOLO service
+          sudo systemctl daemon-reload
+          sudo systemctl enable yolo
+          sudo systemctl restart yolo
+          sudo systemctl status yolo
