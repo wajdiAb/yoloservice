@@ -36,7 +36,7 @@ jobs:
           pip install -r torch-requirements.txt
           pip install -r requirements.txt
 
-
+          REPO_DIR=/home/ubuntu/yoloservice
           # Create systemd service file
           sudo bash -c 'cat > /etc/systemd/system/yolo.service << EOF
           [Unit]
