@@ -4,6 +4,13 @@ import unittest
 from unittest.mock import patch
 from fastapi.testclient import TestClient
 from app import app
+from models import Base
+from sqlalchemy import create_engine
+
+def setUpModule():
+   
+    engine = create_engine("sqlite:///./preductions.db")  
+    Base.metadata.create_all(bind=engine)
 
 client = TestClient(app)
 
