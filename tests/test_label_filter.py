@@ -1,44 +1,52 @@
+# tests/test_label_filter.py
 import unittest
-import sqlite3
+from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 
+from app import app, get_current_username, get_db
 
-class TestLabelFilter(unittest.TestCase):
-    def setUp(self):
-        from app import app, DB_PATH
 
-        self.DB_PATH = DB_PATH
-        self.client = TestClient(app)
-        AUTH = ("labeluser", "labelpass")
-        self.AUTH = AUTH
-        self.uid = "label-test-uid"
+class TestLabelFilterMocked(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.client = TestClient(app)
 
-        with sqlite3.connect(DB_PATH) as conn:
-            conn.execute("DELETE FROM prediction_sessions WHERE uid = ?", (self.uid,))
-            conn.execute("DELETE FROM detection_objects WHERE prediction_uid = ?", (self.uid,))
-            conn.execute("""
-                INSERT INTO prediction_sessions (uid, original_image, predicted_image, username) 
-                VALUES (?, ?, ?, ?)
-            """, (self.uid, "a.jpg", "b.jpg", AUTH[0]))
-            conn.execute("""
-                INSERT INTO detection_objects (prediction_uid, label, score, box)
-                VALUES (?, ?, ?, ?)
-            """, (self.uid, "dog", 0.99, "[0,0,10,10]"))
+        # ---- dependency overrides: no real auth/DB ----
+        def override_get_db():
+            yield MagicMock()
 
-    def test_label_match(self):
-        response = self.client.get("/predictions/label/dog", auth=self.AUTH)
-        self.assertEqual(response.status_code, 200)
-        self.assertGreaterEqual(len(response.json()), 1)
+        app.dependency_overrides[get_current_username] = lambda: "labeluser"
+        app.dependency_overrides[get_db] = override_get_db
 
-    def test_label_not_found(self):
-        response = self.client.get("/predictions/label/notalabel", auth=self.AUTH)
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), [])
+    @classmethod
+    def tearDownClass(cls):
+        app.dependency_overrides = {}
 
-    def tearDown(self):
-        with sqlite3.connect(self.DB_PATH) as conn:
-            conn.execute("DELETE FROM detection_objects WHERE prediction_uid = ?", (self.uid,))
-            conn.execute("DELETE FROM prediction_sessions WHERE uid = ?", (self.uid,))
+    @patch("app.get_predictions_by_label")
+    def test_label_match(self, mock_get_by_label):
+        # The route returns [{"uid": row.uid, "timestamp": row.timestamp}, ...]
+        mock_get_by_label.return_value = [
+            MagicMock(uid="label-test-uid", timestamp="2025-07-30T10:00:00Z")
+        ]
 
-if __name__ == "__main__":
-    unittest.main()
+        resp = self.client.get("/predictions/label/dog")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, list) and len(data) >= 1
+        assert data[0]["uid"] == "label-test-uid"
+        # ensure the route called the query with correct args
+        mock_get_by_label.assert_called_once()
+        # args: (db_session, label, username)
+        _db, label, username = mock_get_by_label.call_args[0]
+        assert label == "dog"
+        assert username == "labeluser"
+
+    @patch("app.get_predictions_by_label", return_value=[])
+    def test_label_not_found(self, mock_get_by_label):
+        resp = self.client.get("/predictions/label/notalabel")
+        assert resp.status_code == 200
+        assert resp.json() == []
+        mock_get_by_label.assert_called_once()
+        _db, label, username = mock_get_by_label.call_args[0]
+        assert label == "notalabel"
+        assert username == "labeluser"

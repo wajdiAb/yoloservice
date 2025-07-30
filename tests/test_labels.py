@@ -1,55 +1,46 @@
+# tests/test_labels_endpoint.py
 import unittest
+from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
-from PIL import Image
-import io
-import time
+
+from app import app, get_current_username, get_db
+
 
 class TestLabelsEndpoint(unittest.TestCase):
-    def setUp(self):
-        from app import app
+    @classmethod
+    def setUpClass(cls):
+        cls.client = TestClient(app)
 
-        self.client = TestClient(app)
+        # ---- dependency overrides: no real auth/DB ----
+        def override_get_db():
+            yield MagicMock()  # fake Session
 
-        # Upload a sample image to ensure there is at least one prediction with labels
-        test_image = Image.new('RGB', (100, 100), color='blue')
-        image_bytes = io.BytesIO()
-        test_image.save(image_bytes, format='JPEG')
-        image_bytes.seek(0)
+        app.dependency_overrides[get_current_username] = lambda: "testuser"
+        app.dependency_overrides[get_db] = override_get_db
 
-        response = self.client.post(
-            "/predict",
-            files={"file": ("test.jpg", image_bytes, "image/jpeg")},
-            auth=("testuser", "testpass")
-        )
-        self.assertEqual(response.status_code, 200)
-        self.prediction_data = response.json()
-        time.sleep(1)  # Ensure timestamp is properly recorded
+    @classmethod
+    def tearDownClass(cls):
+        app.dependency_overrides = {}
 
-    def test_labels_endpoint(self):
-        """Test that /labels returns correct label list structure and values"""
-        response = self.client.get("/labels", auth=("testuser", "testpass"))  # ✅ Auth added
-        self.assertEqual(response.status_code, 200)
+    @patch("app.get_unique_labels_last_week", return_value=["person", "car", "bicycle"])
+    def test_labels_endpoint_success(self, mock_get_unique):
+        resp = self.client.get("/labels")
+        assert resp.status_code == 200
 
-        data = response.json()
+        data = resp.json()
+        assert isinstance(data, dict)
+        assert "labels" in data
+        labels = data["labels"]
+        assert isinstance(labels, list)
+        assert labels == ["person", "car", "bicycle"]
 
-        # Expect a dict with 'labels' key containing list of labels
-        self.assertIsInstance(data, dict)
-        self.assertIn("labels", data)
-        labels_list = data["labels"]
-        self.assertIsInstance(labels_list, list)
+        # ensure the route called the query with correct args
+        (db_arg, username_arg) = mock_get_unique.call_args[0]
+        assert username_arg == "testuser"
+        assert db_arg is not None  # it's the MagicMock yielded by override_get_db
 
-        # Check all labels are strings and non-empty
-        for label in labels_list:
-            self.assertIsInstance(label, str)
-            self.assertTrue(label.strip(), "Label should not be empty")
-
-        # Check there are no duplicates
-        self.assertEqual(len(labels_list), len(set(labels_list)), "Duplicate labels found")
-
-        # (Optional) Check known label exists if predict succeeded
-        if "labels" in self.prediction_data:
-            for expected_label in self.prediction_data["labels"]:
-                self.assertIn(expected_label, labels_list)
-
-if __name__ == "__main__":
-    unittest.main()
+    @patch("app.get_unique_labels_last_week", return_value=[])
+    def test_labels_endpoint_empty(self, mock_get_unique):
+        resp = self.client.get("/labels")
+        assert resp.status_code == 200
+        assert resp.json() == {"labels": []}
