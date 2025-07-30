@@ -1,61 +1,75 @@
 import unittest
-import os
-import sqlite3
+from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
+from fastapi import Response
 
-class TestGetImageEndpoint(unittest.TestCase):
-    def setUp(self):
-        from app import app, DB_PATH
-        self.DB_PATH = DB_PATH
-        self.AUTH = ("testuser", "testpass")
-        self.client = TestClient(app)
+from app import app, get_current_username, get_db
 
-        self.uid = "test-img-uid"
-        self.original = f"uploads/original/{self.uid}.jpg"
-        self.predicted = f"uploads/predicted/{self.uid}.jpg"
 
-        os.makedirs("uploads/original", exist_ok=True)
-        os.makedirs("uploads/predicted", exist_ok=True)
+class TestGetImageEndpointMocked(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.client = TestClient(app)
 
-        with open(self.original, "wb") as f:
-            f.write(b"dummy")
-        with open(self.predicted, "wb") as f:
-            f.write(b"dummy")
+        # ---- dependency overrides ----
+        def override_get_db():
+            # Return a mock Session so Depends(get_db) works without a real DB
+            yield MagicMock()
 
-        with sqlite3.connect(DB_PATH) as conn:
-            conn.execute("DELETE FROM prediction_sessions WHERE uid = ?", (self.uid,))
-            conn.execute(
-                "INSERT INTO prediction_sessions (uid, original_image, predicted_image, username) VALUES (?, ?, ?, ?)",
-                (self.uid, self.original, self.predicted, self.AUTH[0])
-            )
+        app.dependency_overrides[get_current_username] = lambda: "testuser"
+        app.dependency_overrides[get_db] = override_get_db
 
-    def test_invalid_type(self):
-        response = self.client.get(f"/image/invalid/{self.uid}.jpg", auth=self.AUTH)
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["detail"], "Invalid image type")
+        cls.filename = "some-uid.jpg"  # we don't need to create it on disk
 
-    def test_not_found_image(self):
-        response = self.client.get(f"/image/original/not_exists.jpg", auth=self.AUTH)
-        self.assertEqual(response.status_code, 404)
+    @classmethod
+    def tearDownClass(cls):
+        app.dependency_overrides = {}
 
-    def test_not_owned_image(self):
-        with sqlite3.connect(self.DB_PATH) as conn:
-            conn.execute("UPDATE prediction_sessions SET username = ? WHERE uid = ?", ("otheruser", self.uid))
+    # ----------------- tests -----------------
 
-        response = self.client.get(f"/image/original/{self.uid}.jpg", auth=self.AUTH)
-        self.assertEqual(response.status_code, 403)
+    def test_invalid_type_400(self):
+        # No mocks required; route rejects invalid type before IO/DB
+        resp = self.client.get(f"/image/invalid/{self.filename}")
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == "Invalid image type"
 
-    def test_valid_image_access(self):
-        response = self.client.get(f"/image/original/{self.uid}.jpg", auth=self.AUTH)
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(response.headers["content-type"], ["image/jpeg", "application/octet-stream"])
+    @patch("app.is_image_owned_by_user", return_value=True)  # not reached but harmless
+    @patch("app.os.path.exists", return_value=False)
+    def test_not_found_image_404(self, mock_exists, mock_own):
+        resp = self.client.get(f"/image/original/{self.filename}")
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Image not found"
 
-    def tearDown(self):
-        for path in [self.original, self.predicted]:
-            if os.path.exists(path):
-                os.remove(path)
-        with sqlite3.connect(self.DB_PATH) as conn:
-            conn.execute("DELETE FROM prediction_sessions WHERE uid = ?", (self.uid,))
+    @patch("app.os.path.exists", return_value=True)
+    @patch("app.is_image_owned_by_user", return_value=False)
+    def test_not_owned_image_403(self, mock_owned, mock_exists):
+        resp = self.client.get(f"/image/original/{self.filename}")
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "Not authorized to access this image"
 
-if __name__ == "__main__":
-    unittest.main()
+    @patch("app.os.path.exists", return_value=True)
+    @patch("app.is_image_owned_by_user", return_value=True)
+    @patch("app.FileResponse")
+    def test_valid_image_access_original_200(self, mock_file_response, mock_owned, mock_exists):
+        # Make FileResponse return a simple Response so we don't need a real file
+        mock_file_response.return_value = Response(content=b"fake-bytes", media_type="image/jpeg")
+
+        resp = self.client.get(f"/image/original/{self.filename}")
+        assert resp.status_code == 200
+        # Starlette may send default media type for Response; assert that FileResponse was used correctly
+        mock_file_response.assert_called_once()
+        # Ensure path assembled as 'uploads/original/<filename>'
+        called_path = mock_file_response.call_args.args[0]
+        assert called_path.endswith(f"uploads/original/{self.filename}")
+
+    @patch("app.os.path.exists", return_value=True)
+    @patch("app.is_image_owned_by_user", return_value=True)
+    @patch("app.FileResponse")
+    def test_valid_image_access_predicted_200(self, mock_file_response, mock_owned, mock_exists):
+        mock_file_response.return_value = Response(content=b"fake-bytes", media_type="image/jpeg")
+
+        resp = self.client.get(f"/image/predicted/{self.filename}")
+        assert resp.status_code == 200
+        mock_file_response.assert_called_once()
+        called_path = mock_file_response.call_args.args[0]
+        assert called_path.endswith(f"uploads/predicted/{self.filename}")

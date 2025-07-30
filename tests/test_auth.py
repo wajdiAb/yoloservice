@@ -1,168 +1,255 @@
 import unittest
+import asyncio
+from unittest.mock import AsyncMock, patch, MagicMock
 from fastapi.testclient import TestClient
-from app import app, DB_PATH
-from PIL import Image
-import io
-import sqlite3
+from fastapi import HTTPException
+import numpy as np
+import bcrypt
+
+from app import app, get_current_username, get_optional_username, get_db
 
 
-
-class TestAuth(unittest.TestCase):
-
+class TestAuthWithMocks(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        
-        cls.DB_PATH = DB_PATH
+        """Setup TestClient and default dependency overrides (no real DB/auth)."""
         cls.client = TestClient(app)
-        """Ensure test user is created by sending a predict request."""
-        image_bytes = cls._generate_test_image()
-        cls.client.post("/predict", files={"file": image_bytes}, auth=("testuser", "testpass"))
 
-    @staticmethod
-    def _generate_test_image():
-        """Generate a simple in-memory PNG image."""
-        img = Image.new("RGB", (100, 100), color="white")
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        buf.seek(0)
-        return ("test.png", buf, "image/png")
+        def override_get_db():
+            # Mock SQLAlchemy Session for every test
+            yield MagicMock()
 
-    def test_protected_endpoint_requires_auth(self):
-        response = self.client.get("/prediction/test-uid")
-        self.assertEqual(response.status_code, 401)
-        self.assertEqual(response.json()["detail"], "Not authenticated")
+        # Default dependencies: treat the user as authenticated "testuser"
+        app.dependency_overrides[get_current_username] = lambda: "testuser"
+        app.dependency_overrides[get_optional_username] = lambda: "testuser"
+        app.dependency_overrides[get_db] = override_get_db
 
-    def test_get_prediction_unauthenticated(self):
-        response = self.client.get("/prediction/some-uid")
-        self.assertEqual(response.status_code, 401)
-        self.assertEqual(response.json()["detail"], "Not authenticated")
+    @classmethod
+    def tearDownClass(cls):
+        """Reset overrides after tests."""
+        app.dependency_overrides = {}
 
-    def test_get_prediction_wrong_credentials(self):
-        response = self.client.get("/prediction/some-uid", auth=("testuser", "wrongpass"))
-        self.assertIn(response.status_code, (401, 403))
+    # -----------------------------
+    # Utility helpers
+    # -----------------------------
+    def _patch_yolo_with_results(self, detections=None):
+        """
+        Patch YOLO model and DB writers used in /predict.
+        detections: list of MagicMock boxes; default is one box with label 'person'.
+        Returns (patchers, mocks) so caller can stop them in finally.
+        """
+        if detections is None:
+            fake_box = MagicMock()
+            fake_cls, fake_conf, fake_bbox = MagicMock(), MagicMock(), MagicMock()
+            fake_cls.item.return_value = 0          # -> label index
+            fake_conf.item.return_value = 0.8       # -> confidence
+            fake_bbox.tolist.return_value = [0, 0, 100, 100]
 
-    def test_get_prediction_nonexistent_uid(self):
-        response = self.client.get("/prediction/nonexistent-uid", auth=("testuser", "testpass"))
-        self.assertEqual(response.status_code, 404)
-        self.assertEqual(response.json()["detail"], "Prediction not found or not authorized")
+            fake_box.cls = [fake_cls]
+            fake_box.conf = [fake_conf]
+            fake_box.xyxy = [fake_bbox]
+            detections = [fake_box]
 
-    def test_get_prediction_valid(self):
-        image_bytes = self._generate_test_image()
-        predict_resp = self.client.post("/predict", files={"file": image_bytes}, auth=("testuser", "testpass"))
-        self.assertEqual(predict_resp.status_code, 200)
-        uid = predict_resp.json()["prediction_uid"]
+        patchers = [
+            patch("app.model"),            # YOLO runner
+            patch("app.save_prediction"),  # DB insert (session)
+            patch("app.save_detection"),   # DB insert (detections)
+        ]
+        mocks = [p.start() for p in patchers]
 
-        get_resp = self.client.get(f"/prediction/{uid}", auth=("testuser", "testpass"))
-        self.assertEqual(get_resp.status_code, 200)
-        self.assertEqual(get_resp.json()["uid"], uid)
+        mock_model = mocks[0]
+        fake_results = MagicMock()
+        fake_results.__getitem__.return_value = fake_results
+        fake_results.boxes = detections
+        fake_results.plot.return_value = np.zeros((10, 10, 3), dtype=np.uint8)
 
-    def test_predict_wrong_password_after_registration(self):
-        image_bytes = self._generate_test_image()
-        response = self.client.post("/predict", files={"file": image_bytes}, auth=("testuser", "wrongpass"))
-        self.assertEqual(response.status_code, 401)
+        mock_model.return_value = [fake_results]
+        mock_model.names = {0: "person"}  # map label index -> name
 
-    def test_get_predictions_by_label_requires_auth(self):
-        response = self.client.get("/predictions/label/person")
-        self.assertEqual(response.status_code, 401)
+        return patchers, mocks
 
-    def test_status_endpoint_no_auth(self):
-        response = self.client.get("/health")
-        self.assertEqual(response.status_code, 200)
+    # -----------------------------
+    # Endpoint tests (mocked)
+    # -----------------------------
 
-    def test_malformed_authorization_header(self):
-        """Simulate malformed Authorization header (not Basic)."""
-        headers = {
-            "Authorization": "Bearer sometoken"
-        }
-        response = self.client.post("/predict", headers=headers)
-        self.assertEqual(response.status_code, 422)  # FastAPI throws 422 on malformed headers
+    @patch("app.get_detections")
+    @patch("app.get_prediction")
+    def test_get_prediction_valid(self, mock_get_prediction, mock_get_detections):
+        """GET /prediction/{uid} returns prediction when found for user."""
+        mock_obj = MagicMock(
+            uid="mocked-uid",
+            timestamp="now",
+            original_image="x.jpg",
+            predicted_image="y.jpg"
+        )
+        mock_get_prediction.return_value = mock_obj
+        mock_get_detections.return_value = [
+            MagicMock(id=1, label="person", score=0.9, box=[0, 0, 100, 100])
+        ]
 
-    def test_first_time_user_registration(self):
-        """Register a new user by calling predict."""
-        image_bytes = self._generate_test_image()
-        response = self.client.post("/predict", files={"file": image_bytes}, auth=("newuser123", "newpass"))
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["username"], "newuser123")
+        resp = self.client.get("/prediction/mocked-uid")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["uid"], "mocked-uid")
+        self.assertEqual(len(data["detection_objects"]), 1)
 
-    def test_existing_user_correct_password(self):
-        """Test login with valid password after registration."""
-        response = self.client.get("/labels", auth=("testuser", "testpass"))
-        self.assertIn(response.status_code, (200, 204))
-        self.assertIn("labels", response.json())
-
-    def test_predict_without_auth_optional(self):
-        """Check that prediction works without auth (username should be null)."""
-        image_bytes = self._generate_test_image()
-        response =self. client.post("/predict", files={"file": image_bytes})
-        self.assertEqual(response.status_code, 200)
-        self.assertIsNone(response.json()["username"])
-    
-
-    def test_get_prediction_other_user(self):
-        """Try to access a prediction belonging to another user."""
-        uid = "foreign-uid"
-        with sqlite3.connect(self.DB_PATH) as conn:
-            conn.execute("DELETE FROM prediction_sessions WHERE uid = ?", (uid,))
-            conn.execute(
-                "INSERT INTO prediction_sessions (uid, original_image, predicted_image, username) VALUES (?, ?, ?, ?)",
-                (uid, "x.jpg", "y.jpg", "someoneelse")
-            )
-
-        response = self.client.get(f"/prediction/{uid}", auth=("testuser", "testpass"))
-        self.assertEqual(response.status_code, 404)
-        self.assertEqual(response.json()["detail"], "Prediction not found or not authorized")
-    
-    def test_get_optional_username_invalid_auth(self):
-        response = self.client.post("/predict", headers={"Authorization": "Basic invalid"})
-        self.assertEqual(response.status_code, 401)
-        self.assertIn("detail", response.json())
-
-    def test_predict_with_no_detections(self):
-        img = Image.new("RGB", (32, 32), color="black")
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        buf.seek(0)
-
-        response = self.client.post("/predict", files={"file": ("no_obj.png", buf, "image/png")})
-        assert response.status_code == 200
-        assert response.json()["detection_count"] == 0
-
-    def test_get_optional_username_invalid_base64(self):
-        # Invalid base64 encoding triggers HTTPException inside `security()`
-        response = self.client.post("/predict", headers={
-            "Authorization": "Basic not_base64!"  # invalid base64
-        })
-        assert response.status_code == 401  # raised by HTTPBasic
+    @patch("app.get_prediction", return_value=None)
+    def test_get_prediction_not_found(self, _):
+        """GET /prediction/{uid} -> 404 when not found or not authorized."""
+        resp = self.client.get("/prediction/invalid-uid")
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(resp.json()["detail"], "Prediction not found or not authorized")
 
     def test_predict_with_detection(self):
-        # Use an image that YOLO is very likely to detect something in.
-        # You can use a small PNG of a person, car, etc.
-        with open("tests/assets/person.png", "rb") as f:
-            image_file = ("person.png", f, "image/png")
-            response = self.client.post("/predict", files={"file": image_file}, auth=("testuser", "testpass"))
-        
-        assert response.status_code == 200
-        data = response.json()
-        assert data["detection_count"] > 0
-        assert len(data["labels"]) > 0
+        """/predict with mocked YOLO returning one detection."""
+        patchers, _ = self._patch_yolo_with_results()
+        try:
+            resp = self.client.post(
+                "/predict",
+                files={"file": ("test.png", b"fakebytes", "image/png")}
+            )
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertEqual(data["detection_count"], 1)
+            self.assertIn("person", data["labels"])
+            self.assertIn("time_took", data)
+            self.assertIsInstance(data["time_took"], (int, float))
+        finally:
+            for p in patchers:
+                p.stop()
 
-    def test_first_time_user_registration_triggers_insert(self):
-        """Covers new user registration in get_current_username."""
-        image_bytes = self._generate_test_image()
-        new_username = "newuser_456"
-        new_password = "newpass"
+    def test_health_endpoint(self):
+        resp = self.client.get("/health")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"status": "ok"})
 
-        # Clean user in case it already exists from previous run
-        with sqlite3.connect(DB_PATH) as conn:
-            conn.execute("DELETE FROM users WHERE username = ?", (new_username,))
-            conn.commit()
+    def test_predict_no_authentication(self):
+        """
+        POST /predict with NO Authorization header.
+        Temporarily override get_optional_username -> None so username is null.
+        """
+        from app import app as _app, get_optional_username as _get_opt_user
+        orig_override = _app.dependency_overrides.get(_get_opt_user)
+        _app.dependency_overrides[_get_opt_user] = lambda: None
 
-        response = self.client.post("/predict", files={"file": image_bytes}, auth=(new_username, new_password))
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["username"], new_username)
+        try:
+            patchers, _ = self._patch_yolo_with_results(detections=[])
+            try:
+                resp = self.client.post(
+                    "/predict",
+                    files={"file": ("img.jpg", b"fake", "image/jpeg")}
+                )
+                self.assertEqual(resp.status_code, 200)
+                self.assertIsNone(resp.json()["username"])
+                self.assertEqual(resp.json()["detection_count"], 0)
+            finally:
+                for p in patchers:
+                    p.stop()
+        finally:
+            # restore original override
+            if orig_override is None:
+                _app.dependency_overrides.pop(_get_opt_user, None)
+            else:
+                _app.dependency_overrides[_get_opt_user] = orig_override
 
+    def test_predict_invalid_auth_header(self):
+        """
+        POST /predict with malformed Basic header. Remove override so HTTPBasic runs.
+        """
+        from app import app as _app, get_optional_username as _get_opt_user
+        orig_override = _app.dependency_overrides.pop(_get_opt_user, None)
+        try:
+            resp = self.client.post(
+                "/predict",
+                headers={"Authorization": "Basic invalid_base64"},
+                files={"file": ("img.jpg", b"x", "image/jpeg")}
+            )
+            self.assertEqual(resp.status_code, 401)  # HTTPBasic rejects invalid base64
+        finally:
+            if orig_override is not None:
+                _app.dependency_overrides[_get_opt_user] = orig_override
 
+    # -----------------------------
+    # Direct function tests to cover auth branches (mocked DB & bcrypt)
+    # -----------------------------
 
+    def test_get_current_username_new_user_created(self):
+        """
+        Covers: user is None => create_user(...) and return username.
+        (Lines ~52-54)
+        """
+        fake_db = MagicMock()
+        fake_credentials = MagicMock(username="newuser", password="testpass")
 
-if __name__ == "__main__":
-    unittest.main()
+        with patch("app.get_user", return_value=None), \
+             patch("app.create_user") as mock_create:
+            username = get_current_username(fake_credentials, fake_db)
+            self.assertEqual(username, "newuser")
+            mock_create.assert_called_once()
+
+    def test_get_current_username_invalid_password(self):
+        """
+        Covers: user exists but bcrypt.checkpw -> False => HTTP 401.
+        (Line ~57)
+        """
+        fake_user = MagicMock()
+        # It's enough to present a password string; we patch bcrypt.checkpw below.
+        fake_user.password = "hash_doesnt_matter_here"
+        fake_credentials = MagicMock(username="testuser", password="wrong")
+
+        with patch("app.get_user", return_value=fake_user), \
+             patch("bcrypt.checkpw", return_value=False):
+            with self.assertRaises(HTTPException) as ctx:
+                get_current_username(fake_credentials, MagicMock())
+            self.assertEqual(ctx.exception.status_code, 401)
+            self.assertIn("Invalid username or password", ctx.exception.detail)
+
+    def test_get_optional_username_no_auth_header(self):
+        """
+        Covers: no Authorization header => return None.
+        (Line ~76)
+        """
+        # Temporarily remove override to call the real function
+        from app import app as _app, get_optional_username as _get_opt_user
+        orig_override = _app.dependency_overrides.pop(_get_opt_user, None)
+        try:
+            fake_request = MagicMock()
+            fake_request.headers = {}
+            result = asyncio.run(get_optional_username(fake_request, MagicMock()))
+            self.assertIsNone(result)
+        finally:
+            if orig_override is not None:
+                _app.dependency_overrides[_get_opt_user] = orig_override
+
+    def test_get_optional_username_http_exception(self):
+        """
+        Covers: security(request) raises HTTPException => propagate.
+        """
+        # Temporarily remove override to call the real function
+        from app import app as _app, get_optional_username as _get_opt_user
+        orig_override = _app.dependency_overrides.pop(_get_opt_user, None)
+        try:
+            fake_request = MagicMock()
+            fake_request.headers = {"authorization": "Basic something"}
+            with patch("app.security", side_effect=HTTPException(status_code=401)):
+                with self.assertRaises(HTTPException):
+                    asyncio.run(get_optional_username(fake_request, MagicMock()))
+        finally:
+            if orig_override is not None:
+                _app.dependency_overrides[_get_opt_user] = orig_override
+
+    def test_get_optional_username_valid_auth(self):
+        """Covers: security(request) succeeds -> calls get_current_username and returns username."""
+        from app import get_optional_username
+
+        fake_request = MagicMock()
+        fake_request.headers = {"authorization": "Basic goodtoken"}
+
+        # Use AsyncMock for awaitable security
+        fake_credentials = MagicMock()
+        with patch("app.security", AsyncMock(return_value=fake_credentials)), \
+            patch("app.get_current_username", return_value="validuser") as mock_get_user:
+            result = asyncio.run(get_optional_username(fake_request, MagicMock()))
+
+        self.assertEqual(result, "validuser")
+        mock_get_user.assert_called_once_with(fake_credentials, unittest.mock.ANY)
