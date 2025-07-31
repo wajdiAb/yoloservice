@@ -9,7 +9,7 @@ from sqlalchemy import create_engine
 
 def setUpModule():
    
-    engine = create_engine("sqlite:///./preductions.db")  
+    engine = create_engine("sqlite:///./predictions.db")  
     Base.metadata.create_all(bind=engine)
 
 client = TestClient(app)
