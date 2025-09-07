@@ -1,0 +1,58 @@
+"DESCRIPTION","DURATION IN MS","NAME","PARENT SUITE","START TIME","STATUS","STOP TIME","SUB SUITE","SUITE","TEST CLASS","TEST METHOD"
+"If no paths for uid/user -> 404","12","test_delete_prediction_not_found","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestDeletePredictionEndpoint","test_delete","",""
+"","7","test_health_endpoint","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestAuthWithMocks","test_auth","",""
+"At least one prediction has label 'dog'","11","test_label_match","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestLabelFilterMocked","test_label_2","",""
+"Ensure count uses correct helper","9","test_prediction_count_last_7_days","tests","Thu Aug 21 17:05:15 IDT 2025","passed","Thu Aug 21 17:05:15 IDT 2025","TestPredictionCountMocked","test_prediction_count","",""
+"
+        Covers: user exists but bcrypt.checkpw -> False => HTTP 401.
+        (Line ~57)
+        ","5","test_get_current_username_invalid_password","tests","Thu Aug 21 17:05:13 IDT 2025","passed","Thu Aug 21 17:05:13 IDT 2025","TestAuthWithMocks","test_auth","",""
+"","9","test_get_prediction_image_not_acceptable","tests","Thu Aug 21 17:05:15 IDT 2025","passed","Thu Aug 21 17:05:15 IDT 2025","TestPredictionImageMocked","test_prediction_image","",""
+"GET /prediction/{uid} -> 404 when not found or not authorized.","35","test_get_prediction_not_found","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestAuthWithMocks","test_auth","",""
+"","9","test_label_match","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestLabelFilterMocked","test_label_filter","",""
+"","9","test_valid_image_access_original_200","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestGetImageEndpointMocked","test_image","",""
+"","8","test_not_owned_image_403","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestGetImageEndpointMocked","test_image","",""
+"","13","test_get_prediction_image_png","tests","Thu Aug 21 17:05:15 IDT 2025","passed","Thu Aug 21 17:05:15 IDT 2025","TestPredictionImageMocked","test_prediction_image","",""
+"Unit test the helper to ensure it logs (doesn't raise) on deletion failure.","3","test_safe_delete_file_exception_logged","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestDeletePredictionEndpoint","test_delete","",""
+"
+        Covers: no Authorization header => return None.
+        (Line ~76)
+        ","1","test_get_optional_username_no_auth_header","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestAuthWithMocks","test_auth","",""
+"
+        POST /predict with NO Authorization header.
+        Temporarily override get_optional_username -> None so username is null.
+        ","50","test_predict_no_authentication","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestAuthWithMocks","test_auth","",""
+"Covers: security(request) succeeds -> calls get_current_username and returns username.","2","test_get_optional_username_valid_auth","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestAuthWithMocks","test_auth","",""
+"
+        Covers: user is None => create_user(...) and return username.
+        (Lines ~52-54)
+        ","227","test_get_current_username_new_user_created","tests","Thu Aug 21 17:05:13 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestAuthWithMocks","test_auth","",""
+"","249","test_prediction_found","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestGetPredictionByUID","test_get_prediction_controller","",""
+"No predictions with given label","9","test_label_not_found","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestLabelFilterMocked","test_label_2","",""
+"","17","test_get_prediction_image_jpeg","tests","Thu Aug 21 17:05:15 IDT 2025","passed","Thu Aug 21 17:05:15 IDT 2025","TestPredictionImageMocked","test_prediction_image","",""
+"","11","test_prediction_image_file_missing","tests","Thu Aug 21 17:05:15 IDT 2025","passed","Thu Aug 21 17:05:15 IDT 2025","TestPredictionImageMocked","test_prediction_image","",""
+"","10","test_valid_image_access_predicted_200","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestGetImageEndpointMocked","test_image","",""
+"","12","test_score_match","tests","Thu Aug 21 17:05:15 IDT 2025","passed","Thu Aug 21 17:05:15 IDT 2025","TestScoreFilterMocked","test_score","",""
+"Files already gone -> still 200 and DB deleted","11","test_delete_prediction_files_already_deleted","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestDeletePredictionEndpoint","test_delete","",""
+"","9","test_invalid_type_400","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestGetImageEndpointMocked","test_image","",""
+"","240","test_prediction_not_found","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestGetPredictionByUID","test_get_prediction_controller","",""
+"","10","test_labels_endpoint_empty","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:15 IDT 2025","TestLabelsEndpoint","test_labels","",""
+"Happy path: paths found -> delete DB rows and both files","13","test_delete_prediction_success","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestDeletePredictionEndpoint","test_delete","",""
+"","12","test_stats_with_no_predictions","tests","Thu Aug 21 17:05:15 IDT 2025","passed","Thu Aug 21 17:05:15 IDT 2025","TestStatsEndpointMocked","test_stats","",""
+"GET /prediction/{uid} returns prediction when found for user.","10","test_get_prediction_valid","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestAuthWithMocks","test_auth","",""
+"","11","test_get_prediction_image_not_found_by_uid","tests","Thu Aug 21 17:05:15 IDT 2025","passed","Thu Aug 21 17:05:15 IDT 2025","TestPredictionImageMocked","test_prediction_image","",""
+"
+        Covers: security(request) raises HTTPException => propagate.
+        ","2","test_get_optional_username_http_exception","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestAuthWithMocks","test_auth","",""
+"","13","test_stats_endpoint","tests","Thu Aug 21 17:05:15 IDT 2025","passed","Thu Aug 21 17:05:15 IDT 2025","TestStatsEndpointMocked","test_stats","",""
+"","10","test_label_not_found","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestLabelFilterMocked","test_label_filter","",""
+"Check response format and status","8","test_prediction_count_format","tests","Thu Aug 21 17:05:15 IDT 2025","passed","Thu Aug 21 17:05:15 IDT 2025","TestPredictionCountMocked","test_prediction_count","",""
+"","19","test_predict_includes_processing_time","tests","Thu Aug 21 17:05:15 IDT 2025","passed","Thu Aug 21 17:05:15 IDT 2025","TestProcessingTimeMocked","test_prediction_time","",""
+"","99","test_not_found_image_404","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestGetImageEndpointMocked","test_image","",""
+"
+        POST /predict with malformed Basic header. Remove override so HTTPBasic runs.
+        ","14","test_predict_invalid_auth_header","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestAuthWithMocks","test_auth","",""
+"","11","test_stats_zero_objects","tests","Thu Aug 21 17:05:15 IDT 2025","passed","Thu Aug 21 17:05:15 IDT 2025","TestStatsEndpointMocked","test_stats","",""
+"","18","test_score_too_high","tests","Thu Aug 21 17:05:15 IDT 2025","passed","Thu Aug 21 17:05:15 IDT 2025","TestScoreFilterMocked","test_score","",""
+"/predict with mocked YOLO returning one detection.","19","test_predict_with_detection","tests","Thu Aug 21 17:05:14 IDT 2025","passed","Thu Aug 21 17:05:14 IDT 2025","TestAuthWithMocks","test_auth","",""
+"","8","test_labels_endpoint_success","tests","Thu Aug 21 17:05:15 IDT 2025","passed","Thu Aug 21 17:05:15 IDT 2025","TestLabelsEndpoint","test_labels","",""

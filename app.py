@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Request
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request, Query
 from fastapi.responses import FileResponse, Response
 from ultralytics import YOLO
 from PIL import Image
@@ -19,7 +19,13 @@ from models import User, PredictionSession, DetectionObject
 from queries import get_user, create_user, get_predictions_by_label, get_predictions_by_score, is_image_owned_by_user
 from queries import get_predicted_image_path, count_predictions_last_week, get_unique_labels_last_week, get_prediction_file_paths, delete_prediction_and_detections
 from queries import get_user_prediction_stats
+from dotenv import load_dotenv; load_dotenv()
 
+
+from s3_utils import (
+    AWS_S3_BUCKET, AWS_REGION,
+    download_file, upload_file, copy_object, s3_key_exists
+)
 security = HTTPBasic()
 
 # Disable GPU usage
@@ -83,41 +89,119 @@ async def get_optional_username(
 
 @app.post("/predict")
 def predict(
-    file: UploadFile = File(...),
-    username: str = Depends(get_optional_username),
-    db: Session = Depends(get_db)  # ✅ Inject the database session
+    file: UploadFile | None = File(default=None),
+    img: str | None = Query(default=None, description="S3 key or image name"),
+    chat_id: str = Query(default="anonymous"),
+    username: str | None = Depends(get_optional_username),
+    db: Session = Depends(get_db)
 ):
     """
-    Predict objects in an image — optional authentication (username = null if not provided)
+    Predict objects in an image.
+    Modes:
+      - File upload (form-data "file")
+      - S3 mode: /predict?img=<s3_key>&chat_id=<id>
+        * Downloads from S3, runs detection, uploads original/predicted to S3
+        * Organized as <bucket>/<chat_id>/original/<uid><ext> and <bucket>/<chat_id>/predicted/<uid><ext>
     """
+    if not file and not img:
+        raise HTTPException(status_code=400, detail="Provide a file upload or ?img=<s3_key>")
+
     start_time = time.time()
-    ext = os.path.splitext(file.filename)[1]
     uid = str(uuid.uuid4())
+
+    # --- Resolve extension ---
+    if file:
+        ext = os.path.splitext(file.filename)[1]
+    else:
+        # derive extension from S3 key (fallback .jpg)
+        ext = os.path.splitext(img)[1] if img else ""
+        if not ext:
+            ext = ".jpg"
+
     original_path = os.path.join(UPLOAD_DIR, uid + ext)
     predicted_path = os.path.join(PREDICTED_DIR, uid + ext)
 
-    with open(original_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+    # --- Input acquisition: upload or S3 download ---
+    if file and not img:
+        with open(original_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+        s3_mode = False
+        source_key = None
+    elif img and not file:
+        if not AWS_S3_BUCKET:
+            raise HTTPException(status_code=500, detail="AWS_S3_BUCKET is not set")
+        # Download the requested S3 object directly into original_path
+        try:
+            download_file(AWS_S3_BUCKET, img, original_path)
+        except Exception:
+            raise HTTPException(status_code=404, detail=f"S3 object not found: s3://{AWS_S3_BUCKET}/{img}")
+        s3_mode = True
+        source_key = img
+    else:
+        raise HTTPException(status_code=400, detail="Provide only one of: file OR img")
 
+    # --- Run YOLO detection (unchanged) ---
     results = model(original_path, device="cpu")
-
     annotated_frame = results[0].plot()
     annotated_image = Image.fromarray(annotated_frame)
     annotated_image.save(predicted_path)
 
-    # ✅ Save using SQLAlchemy
+    # ✅ Save session & detections in DB (unchanged)
     save_prediction(db, uid, original_path, predicted_path, username)
-
     detected_labels = []
     for box in results[0].boxes:
         label_idx = int(box.cls[0].item())
         label = model.names[label_idx]
         score = float(box.conf[0])
         bbox = box.xyxy[0].tolist()
-
-        # ✅ Save detection using SQLAlchemy
         save_detection(db, uid, label, score, bbox)
         detected_labels.append(label)
+
+    # --- If S3 mode: upload organized copies ---
+    s3_info = None
+    if s3_mode:
+        # organize by chat_id and use generated uid for uniqueness
+        original_key = f"{chat_id}/original/{uid}{ext}"
+        predicted_key = f"{chat_id}/predicted/{uid}{ext}"
+
+        # Keep a canonical copy of the original under chat_id/original/
+        # If you want to preserve the *user-passed* object too, it's still at source_key.
+        if not s3_key_exists(AWS_S3_BUCKET, original_key):
+            try:
+                # cheaper in-bucket copy if source and bucket are same
+                if source_key and source_key != original_key:
+                    copy_object(AWS_S3_BUCKET, source_key, original_key)
+                else:
+                    upload_file(AWS_S3_BUCKET, original_key, original_path)
+            except Exception:
+                # fallback upload
+                upload_file(AWS_S3_BUCKET, original_key, original_path)
+
+        # Upload annotated output
+        # Use PIL-chosen format; content-type guessed by path extension
+        upload_file(AWS_S3_BUCKET, predicted_key, predicted_path)
+
+        s3_info = {
+            "bucket": AWS_S3_BUCKET,
+            "region": AWS_REGION,
+            "source_key": source_key,
+            "original_key": original_key,
+            "predicted_key": predicted_key,
+        }
+    else:
+        # Optional: also upload uploads from regular file mode (parity)
+        # Comment out if not needed
+        if AWS_S3_BUCKET:
+            original_key = f"{chat_id}/original/{uid}{ext}"
+            predicted_key = f"{chat_id}/predicted/{uid}{ext}"
+            upload_file(AWS_S3_BUCKET, original_key, original_path)
+            upload_file(AWS_S3_BUCKET, predicted_key, predicted_path)
+            s3_info = {
+                "bucket": AWS_S3_BUCKET,
+                "region": AWS_REGION,
+                "original_key": original_key,
+                "predicted_key": predicted_key,
+            }
 
     processing_time = time.time() - start_time
 
@@ -126,7 +210,8 @@ def predict(
         "username": username,
         "detection_count": len(results[0].boxes),
         "labels": detected_labels,
-        "time_took": processing_time
+        "time_took": processing_time,
+        "s3": s3_info
     }
 
 

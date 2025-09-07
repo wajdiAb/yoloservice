@@ -1,6 +1,6 @@
 from sqlalchemy import Column, String, DateTime, Float, Integer, ForeignKey
 from sqlalchemy.orm import relationship, declarative_base
-from datetime import datetime
+from datetime import datetime, UTC
 # from db import Base
 
 Base = declarative_base()
@@ -13,7 +13,7 @@ class User(Base):
 class PredictionSession(Base):
     __tablename__ = "prediction_sessions"
     uid = Column(String, primary_key=True, index=True)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=lambda: datetime.now(UTC))
     original_image = Column(String)
     predicted_image = Column(String)
     username = Column(String, ForeignKey("users.username"))
