@@ -1,0 +1,32 @@
+name: Yolo Build and Push
+
+on:
+  push:
+    branches: 
+      - main
+      
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Get code
+      uses: actions/checkout@v4
+
+    - name: Build and push Docker image
+      run: |
+        # Login to DockerHub
+        echo ${{ secrets.DOCKERHUB_PASSWORD }} | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
+        
+        TAG="${{ github.sha }}-$(date +%Y%m%d-%H%M%S)"
+        
+        # Build the image with a simple tag
+        docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/yolo:$TAG .
+        
+        # Push the image to DockerHub
+        docker push ${{ secrets.DOCKERHUB_USERNAME }}/yolo:$TAG
